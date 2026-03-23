@@ -259,15 +259,14 @@ import model.BmsField;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import javafx.scene.control.*;
+
 
 public class BmsGenerator {
     
     private static final int MAX_SOURCE_COL = 71;
 
-    /* =========================================================
-       PUBLIC API
-       ========================================================= */
-
+    // PUBLIC API
     public static String generate(
             String mapName,
             int rows,
@@ -297,10 +296,7 @@ public class BmsGenerator {
         return sb.toString();
     }
 
-    /* =========================================================
-       MAPSET
-       ========================================================= */
-
+    // MAPSET
     private static void appendMapSet(StringBuilder sb,
                                      String mapName,
                                      String tioapfx,
@@ -318,10 +314,7 @@ public class BmsGenerator {
         appendMacro(sb, mapName, "DFHMSD", params);
     }
 
-    /* =========================================================
-       MAP
-       ========================================================= */
-
+    // MAP
     private static void appendMap(StringBuilder sb,
                                   int rows,
                                   int cols,
@@ -336,10 +329,7 @@ public class BmsGenerator {
         appendMacro(sb, "MAP1", "DFHMDI", params);
     }
 
-    /* =========================================================
-       FIELDS
-       ========================================================= */
-
+    // FIELDS
     private static void appendFields(StringBuilder sb,
                                      List<BmsField> fields) {
 
@@ -376,10 +366,7 @@ public class BmsGenerator {
         }
     }
 
-    /* =========================================================
-       STOPPER FIELD
-       ========================================================= */
-
+    // STOPPER FIELD
     private static void appendStopperField(StringBuilder sb,
                                            int rows,
                                            int cols) {
@@ -393,22 +380,20 @@ public class BmsGenerator {
         appendMacro(sb, "ZZZSTOP", "DFHMDF", params);
     }
 
-    /* =========================================================
-       FINAL
-       ========================================================= */
-
+    // FINAL
     private static void appendFinal(StringBuilder sb, String mapName) {
         sb.append(mapName).append(" DFHMSD TYPE=FINAL\n");
         sb.append("         END\n");
     }
 
-    /* =========================================================
-       COPYBOOK GENERATOR
-       ========================================================= */
-
+    // COPYBOOK GENERATOR
     public static String generateCopybook(String mapName,
                                           List<BmsField> fields,
                                           boolean tioapfx) {
+
+        if (fields == null) {
+            throw new IllegalArgumentException("Fields list cannot be null");
+        }
 
         StringBuilder sb = new StringBuilder();
         String uMap = mapName.toUpperCase();
@@ -452,10 +437,7 @@ public class BmsGenerator {
         return sb.toString();
     }
 
-    /* =========================================================
-       MACRO WRITER (Assembler Safe)
-       ========================================================= */
-
+    // MACRO WRITER (Assembler Safe)
     private static void appendMacro(StringBuilder sb,
                                     String label,
                                     String macro,
@@ -480,10 +462,7 @@ public class BmsGenerator {
         }
     }
 
-    /* =========================================================
-       FORMATTER
-       ========================================================= */
-
+    // FORMATTER
     private static void writeLine(StringBuilder sb, String line) {
 
         if (line.endsWith(",")) {
@@ -493,12 +472,10 @@ public class BmsGenerator {
         }
     }
 
-    /* =========================================================
-       VALIDATION
-       ========================================================= */
-
+    // VALIDATION
     private static void validateMapName(String name) {
         if (!name.matches("^[A-Za-z][A-Za-z0-9]{0,7}$")) {
+            new Alert(Alert.AlertType.ERROR, "Invalid BMS Map Name").showAndWait();
             throw new IllegalArgumentException("Invalid BMS Map Name");
         }
     }
@@ -525,10 +502,7 @@ public class BmsGenerator {
                 : value;
     }
 
-    /* =========================================================
-       PREVIEW
-       ========================================================= */
-
+    // PREVIEW
     private static void appendPreview(StringBuilder sb,
                                       int rows,
                                       int cols,

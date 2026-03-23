@@ -6,18 +6,18 @@ import javafx.scene.control.*;
 import javafx.scene.input.*;
 import javafx.geometry.*;
 import javafx.event.ActionEvent;
-import javafx.scene.control.Button;
 import javafx.scene.paint.Color;
-import model.BmsField;
-import service.BmsGenerator;
+import model.*;
+import service.*;
 import java.util.*;
 import javafx.stage.FileChooser;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import javafx.scene.control.CheckBox;
-import javafx.scene.layout.GridPane;
+import ui.components.*;
+import ui.dialogs.AboutDialog;
+import ui.dialogs.FieldDialog;
+import ui.dialogs.ExportDialog;
+import ui.CanvasController;
 
 public class MainView {
 
@@ -32,6 +32,7 @@ public class MainView {
     private BorderPane root;
     private Canvas canvas;
     private GraphicsContext gc;
+    private CanvasController canvasController;
 
     private List<BmsField> fields = new ArrayList<>();
     private BmsField selectedField = null;
@@ -39,12 +40,17 @@ public class MainView {
     private double dragOffsetX, dragOffsetY;
     private Tooltip currentTooltip = null;
     private VBox fieldPalette;
-    
+
     private boolean snapEnabled = true;
     private boolean resizing = false;
-    
+
     private BmsField clipboardField = null;
-    
+    private final ValidationService validationService = new ValidationService();
+    private final ExportService exportService = new ExportService();
+    private final Deque<List<BmsField>> undoStack = new ArrayDeque<>();
+    private final Deque<List<BmsField>> redoStack = new ArrayDeque<>();
+    private final CanvasRenderer renderer = new CanvasRenderer(CELL_WIDTH, CELL_HEIGHT);
+
     public MainView() {
         root = new BorderPane();
         setupCanvas();
@@ -53,37 +59,25 @@ public class MainView {
         setupMenu();
     }
 
-    // =====================================================
     // Canvas
-    // =====================================================
-
     private void setupCanvas() {
 
         canvas = new Canvas(cols * CELL_WIDTH, rows * CELL_HEIGHT);
         gc = canvas.getGraphicsContext2D();
         canvas.setFocusTraversable(true);
 
-        drawGrid();
+        canvasController = new CanvasController(canvas, rows, cols, renderer);
+        
+        renderer.drawGrid(canvas, rows, cols);
 
         canvas.setOnMousePressed(this::handleMousePressed);
         canvas.setOnMouseDragged(this::handleDrag);
-        canvas.setOnMouseReleased(e -> selectedField = null);
+        // canvas.setOnMouseReleased(e -> selectedField = null);
+        canvas.setOnMouseReleased(e -> {
+            resizing = false;
+        });
         canvas.setOnMouseMoved(this::handleTooltip);
         canvas.setOnKeyPressed(this::handleKeyPress);
-
-        // Ruler canvas
-        // Canvas hRuler = new Canvas(cols * CELL_WIDTH, 20);
-        // Canvas vRuler = new Canvas(40, rows * CELL_HEIGHT);
-
-        // drawHorizontalRuler(hRuler.getGraphicsContext2D());
-        // drawVerticalRuler(vRuler.getGraphicsContext2D());
-
-        // StackPane canvasPane = new StackPane(canvas);
-
-        // BorderPane canvasWithRulers = new BorderPane();
-        // canvasWithRulers.setTop(hRuler);
-        // canvasWithRulers.setLeft(vRuler);
-        // canvasWithRulers.setCenter(canvasPane);
 
         root.setCenter(new StackPane(canvas));
     }
@@ -124,22 +118,36 @@ public class MainView {
 
                     MenuItem editItem = new MenuItem("Edit Field");
                     editItem.setOnAction(ev ->
-                            editOrAddFieldDialog(
-                                    selectedField,
+                            editOrAddFieldDialog(selectedField,
                                     f.getRow(),
                                     f.getCol()));
 
                     MenuItem deleteItem = new MenuItem("Delete Field");
                     deleteItem.setOnAction(ev -> {
+                        saveState();
                         fields.remove(selectedField);
                         selectedField = null;
-                        redrawFields();
+                        renderer.drawFields(canvas, fields, rows, cols, selectedField);
+                    });                    
+
+                    MenuItem cloneItem = new MenuItem("Clone Field");
+                    cloneItem.setOnAction(ev -> {
+                        // 
                     });
 
-                    new ContextMenu(editItem, deleteItem)
+                    // new ContextMenu(editItem, deleteItem)
+                    //         .show(canvas, e.getScreenX(), e.getScreenY());
+                    
+                    cloneItem.setOnAction(ev -> {
+                        BmsField copy = cloneField(selectedField);
+                        fields.add(copy);
+                        renderer.drawFields(canvas, fields, rows, cols, selectedField);
+                    });
+
+                    new ContextMenu(editItem, cloneItem, deleteItem)
                             .show(canvas, e.getScreenX(), e.getScreenY());
                 }
-                
+
                 // Double click
                 if (e.getClickCount() == 2 && e.getButton() == MouseButton.PRIMARY) {
                     editOrAddFieldDialog(selectedField, f.getRow(), f.getCol());
@@ -153,6 +161,17 @@ public class MainView {
         if (e.getButton() == MouseButton.PRIMARY) {
             int col = x / CELL_WIDTH + 1;
             int row = y / CELL_HEIGHT + 1;
+
+            BmsField temp = new BmsField();
+            temp.setRow(row);
+            temp.setCol(col);
+            temp.setLength(5);
+
+            if (renderer.overlaps(temp, fields)) {
+                showWarning("Cannot place field here. Overlapping detected.");
+                return;
+            }
+
             editOrAddFieldDialog(null, row, col);
         }
     }
@@ -164,45 +183,45 @@ public class MainView {
         if (resizing) {
 
             int startX = (selectedField.getCol() - 1) * CELL_WIDTH;
-            int newLength =
-                    (int)((e.getX() - startX) / CELL_WIDTH);
+            int newLength = (int) ((e.getX() - startX) / CELL_WIDTH);
 
-            if (newLength > 0 &&
-                    selectedField.getCol() + newLength - 1 <= cols) {
+            if (newLength > 0 && selectedField.getCol() + newLength - 1 <= cols) {
 
                 int oldLength = selectedField.getLength();
                 selectedField.setLength(newLength);
 
-                if (overlaps(selectedField)) {
+                if (renderer.overlaps(selectedField, fields)) {
                     selectedField.setLength(oldLength);
                 } else {
-                    redrawFields();
+                    renderer.drawFields(canvas, fields, rows, cols, selectedField);
                 }
             }
 
             return;
         }
 
-        int newCol =
-                (int)((e.getX() - dragOffsetX) / CELL_WIDTH) + 1;
-
-        int newRow =
-                (int)((e.getY() - dragOffsetY) / CELL_HEIGHT) + 1;
+        int newCol;
+        int newRow;
 
         if (snapEnabled) {
-            newCol = Math.round(newCol);
-            newRow = Math.round(newRow);
-        }
+            newCol = (int) ((e.getX() - dragOffsetX) / CELL_WIDTH) + 1;
+            newRow = (int) ((e.getY() - dragOffsetY) / CELL_HEIGHT) + 1;
 
-        newCol = Math.max(1,
-                Math.min(cols - selectedField.getLength() + 1, newCol));
+        } else {
+
+            // Free movement (pixel based)
+            newCol = (int) ((e.getX()) / CELL_WIDTH) + 1;
+            newRow = (int) ((e.getY()) / CELL_HEIGHT) + 1;
+        }        
+
+        newCol = Math.max(1, Math.min(cols - selectedField.getLength() + 1, newCol));
         newRow = Math.max(1, Math.min(rows, newRow));
 
         selectedField.setCol(newCol);
         selectedField.setRow(newRow);
 
-        if (!overlaps(selectedField))
-            redrawFields();
+        if (!renderer.overlaps(selectedField, fields))
+            renderer.drawFields(canvas, fields, rows, cols, selectedField);
     }
 
     private void handleTooltip(MouseEvent e) {
@@ -243,175 +262,16 @@ public class MainView {
         }
     }
 
-    // =====================================================
-    // Dialog
-    // =====================================================
-    private void editOrAddFieldDialog(BmsField field, int row, int col) {
-
-        boolean isNew = (field == null);
-        BmsField f = isNew ? new BmsField() : field;
-
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle(isNew ? "Add Field" : "Edit Field");
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-
-        TextField nameField = new TextField(f.getName());
-
-        if (isNew) {
-            String autoName = getAutoIncrementFieldName();
-            nameField.setText(autoName);
-        }
-
-        ChoiceBox<BmsField.FieldType> typeBox = new ChoiceBox<>();
-        typeBox.getItems().addAll(BmsField.FieldType.values());
-        typeBox.setValue(f.getFieldType());
-
-        TextField initialField = new TextField(f.getInitialValue());
-
-        TextField lengthField = new TextField(String.valueOf(f.getLength()));
-
-        ChoiceBox<BmsField.BmsColor> colorBox = new ChoiceBox<>();
-        colorBox.getItems().addAll(BmsField.BmsColor.values());
-        colorBox.setValue(f.getColor());
-
-        ChoiceBox<BmsField.BmsColor> bgColorBox = new ChoiceBox<>();
-        bgColorBox.getItems().addAll(BmsField.BmsColor.values());
-        bgColorBox.setValue(f.getBgColor());
-
-        ChoiceBox<BmsField.Protection> protectionBox = new ChoiceBox<>();
-        protectionBox.getItems().addAll(BmsField.Protection.values());
-        protectionBox.setValue(f.getProtection());
-
-        ChoiceBox<BmsField.Intensity> intensityBox = new ChoiceBox<>();
-        intensityBox.getItems().addAll(BmsField.Intensity.values());
-        intensityBox.setValue(f.getIntensity());
-
-        grid.addRow(0, new Label("Name:"), nameField);
-        grid.addRow(1, new Label("Type:"), typeBox);
-        grid.addRow(2, new Label("Length:"), lengthField);
-        grid.addRow(3, new Label("Text Color:"), colorBox);
-        grid.addRow(4, new Label("Background:"), bgColorBox);
-        grid.addRow(5, new Label("Protection:"), protectionBox);
-        grid.addRow(6, new Label("Intensity:"), intensityBox);
-        grid.addRow(7, new Label("Initial:"), initialField);
-
-        dialog.getDialogPane().setContent(grid);
-
-        initialField.textProperty().addListener((observable, oldValue, newValue) -> {
-            lengthField.setText(String.valueOf(newValue.length()));
-        });
-
-        // Handle OK button click
-        Button okButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.OK);
-        okButton.addEventFilter(ActionEvent.ACTION, event -> {
-            try {
-                String fieldName = nameField.getText().trim().toUpperCase();
-                int len = Integer.parseInt(lengthField.getText());
-                String initVal = initialField.getText();
-
-                if (len <= 0) {
-                    showError("Length must be positive number.");
-                    event.consume();
-                    return;
-                }
-
-                if (!isValidFieldName(fieldName)) {
-                    showError("Invalid field name.\n" +
-                            "1–30 chars.\n" +
-                            "A-Z 0-9 @ # $ - _\n" +
-                            "Must start with A-Z or @#$");
-                    event.consume();
-                    return;
-                }
-
-                if (fieldNameExists(fieldName, f)) {
-                    showError("Field name already exists in this map.");
-                    event.consume();
-                    return;
-                }
-
-                if (initVal.length() > len) {
-                    showError("Initial value cannot exceed field length (" + len + ").");
-                    event.consume();
-                    return;
-                }
-
-                // Assigning field properties
-                f.setName(fieldName);
-                f.setLength(len);
-                f.setFieldType(typeBox.getValue());
-                f.setColor(colorBox.getValue());
-                f.setBgColor(bgColorBox.getValue());
-                BmsField.Protection selectedProtection = protectionBox.getValue();
-                f.setProtection(selectedProtection);
-                f.setIntensity(intensityBox.getValue());
-                f.setInitialValue(initVal);
-                f.setRow(row);
-                f.setCol(col);
-
-
-                boolean userExplicitlyChangedProtection =
-                        protectionBox.getValue() != f.getProtection();
-
-                if (f.getFieldType() == BmsField.FieldType.OUTPUT
-                        && !initVal.isBlank()
-                        && selectedProtection == BmsField.Protection.PROT) {
-
-                    f.setProtection(BmsField.Protection.ASKIP);
-                }
-
-                if (f.isLikelyLabel() && !userExplicitlyChangedProtection) {
-                    f.setProtection(BmsField.Protection.ASKIP);
-                }
-
-                if (overlaps(f)) {
-                    showError("Field overlaps another field.");
-                    event.consume();
-                    return;
-                }
-
-                if (isNew) fields.add(f);
-
-                redrawFields();
-
-            } catch (NumberFormatException ex) {
-                showError("Length must be a positive number.");
-                event.consume();
-            }
-        });
-
-        dialog.showAndWait();
-    }
-
     private String getAutoIncrementFieldName() {
         int index = 1;
         String baseName = "FIELD";
-        while (fieldNameExists(baseName + index, null)) {
+        while (validationService.fieldNameExists(baseName + index, null, fields)) {
             index++;
         }
         return baseName + index;
     }
 
-    private boolean fieldNameExists(String fieldName, BmsField currentField) {
-        for (BmsField f : fields) {
-            if (!f.equals(currentField) && f.getName().equalsIgnoreCase(fieldName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isValidFieldName(String name) {
-        return name.matches("[A-Za-z@#$][A-Za-z0-9@#$-_]{0,29}");
-    }
-    // =====================================================
     // Palette
-    // =====================================================
-
     private void setupPalette() {
 
         fieldPalette = new VBox(10);
@@ -447,121 +307,18 @@ public class MainView {
         outputBtn.setMaxWidth(Double.MAX_VALUE);
         inoutBtn.setMaxWidth(Double.MAX_VALUE);
 
-        fieldPalette.getChildren()
-                .addAll(label, inputBtn, outputBtn, inoutBtn);
-
+        fieldPalette.getChildren().addAll(label, inputBtn, outputBtn, inoutBtn);
         root.setLeft(fieldPalette);
     }
 
-    // =====================================================
-    // Helpers
-    // =====================================================
-    private void drawGrid() {
-
-        // Dark phosphor background
-        gc.setFill(Color.web("#0C0C0C"));
-        gc.fillRect(0, 0,
-                canvas.getWidth(),
-                canvas.getHeight());
-
-        // Subtle grid
-        gc.setStroke(Color.web("#003300"));
-
-        for (int r = 0; r <= rows; r++)
-            gc.strokeLine(0, r * CELL_HEIGHT,
-                    cols * CELL_WIDTH,
-                    r * CELL_HEIGHT);
-
-        for (int c = 0; c <= cols; c++)
-            gc.strokeLine(c * CELL_WIDTH, 0,
-                    c * CELL_WIDTH,
-                    rows * CELL_HEIGHT);
-    }
-
-    private void redrawFields() {
-        drawGrid();
-
-        gc.setFont(javafx.scene.text.Font.font(
-                "Monospaced",
-                javafx.scene.text.FontWeight.BOLD,
-                14));
-
-        for (BmsField f : fields) {
-
-            int x = (f.getCol() - 1) * CELL_WIDTH;
-            int y = (f.getRow() - 1) * CELL_HEIGHT;
-            int w = f.getLength() * CELL_WIDTH;
-
-            gc.setFill(toFxColor(f.getBgColor()));  
-            gc.fillRect(x, y, w, CELL_HEIGHT);  
-
-            gc.setFill(toFxColor(f.getColor()));  
-            gc.fillText(f.getInitialValue(), x + 2, y + CELL_HEIGHT - 5);  
-
-            gc.setFill(Color.RED);  
-            gc.fillRect(x + w - 4, y, 4, CELL_HEIGHT);  
-
-        }
-    }
-
-    private boolean overlaps(BmsField field) {
-
-        for (BmsField f : fields) {
-
-            if (f == field) continue;
-
-            if (f.getRow() == field.getRow()) {
-
-                int start1 = f.getCol();
-                int end1 = f.getCol() + f.getLength() - 1;
-
-                int start2 = field.getCol();
-                int end2 = field.getCol() + field.getLength() - 1;
-
-                if (start1 <= end2 && start2 <= end1)
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    private BmsField cloneField(BmsField f) {
-
-        BmsField copy = new BmsField();
-
-        copy.setName(copy.getName() + "_1");
-        copy.setFieldType(f.getFieldType());
-        copy.setLength(f.getLength());
-        copy.setColor(f.getColor());
-        copy.setProtection(f.getProtection());
-        copy.setIntensity(f.getIntensity());
-        copy.setInitialValue(f.getInitialValue());
-        copy.setRow(f.getRow());
-        copy.setCol(f.getCol());
-
-        return copy;
-    }
-
-    private boolean isValidMapName(String name) {
-
-        if (name == null) return false;
-
-        name = name.trim().toUpperCase();
-
-        if (!name.matches("^[A-Z@#$][A-Z0-9@#$]{0,6}$"))
-            return false;
-
-        return true;
-    }
-
+    // Keyboard
     private void handleKeyPress(KeyEvent e) {
-
-        if (selectedField == null) return;
-        System.out.print("null");
+        if (selectedField != null && !renderer.overlaps(selectedField, fields)) return;
 
         switch (e.getCode()) {
-
             case DELETE:
+            System.out.println("delet");
+                saveState();
                 fields.remove(selectedField);
                 selectedField = null;
                 break;
@@ -580,11 +337,12 @@ public class MainView {
 
             case RIGHT:
                 selectedField.setCol(
-                    Math.min(cols - selectedField.getLength() + 1,
-                             selectedField.getCol() + 1));
+                        Math.min(cols - selectedField.getLength() + 1,
+                                selectedField.getCol() + 1));
                 break;
+
             case C:
-                if (e.isControlDown() && selectedField != null)
+                if (e.isControlDown())
                     clipboardField = cloneField(selectedField);
                 break;
 
@@ -593,81 +351,86 @@ public class MainView {
                     BmsField copy = cloneField(clipboardField);
                     copy.setCol(copy.getCol() + 1);
                     fields.add(copy);
-                    redrawFields();
+                    renderer.drawFields(canvas, fields, rows, cols, selectedField);
+                }
+                break;
+            case Z:
+                if (e.isControlDown() && !undoStack.isEmpty()) {
+                    redoStack.push(new ArrayList<>(fields));
+                    fields = new ArrayList<>(undoStack.pop());
+                    renderer.drawFields(canvas, fields, rows, cols, selectedField);
+                }
+                break;
+
+            case Y:
+                if (e.isControlDown() && !redoStack.isEmpty()) {
+                    undoStack.push(new ArrayList<>(fields));
+                    fields = new ArrayList<>(redoStack.pop());
+                    renderer.drawFields(canvas, fields, rows, cols, selectedField);
                 }
                 break;
             default:
                 return;
         }
 
-        if (!overlaps(selectedField))
-            redrawFields();
+        if (!renderer.overlaps(selectedField, fields))
+            renderer.drawFields(canvas, fields, rows, cols, selectedField);
     }
 
+    // Controls & Menu
     private void setupControls() {
+
         Button exportButton = new Button("Generate BMS & Copybook");
-        exportButton.getStyleClass().add("primary-button"); // Optional
+        exportButton.getStyleClass().add("primary-button");
+
         exportButton.setOnAction(e -> {
-            exportBms();
-        });
+
+            if (fields == null || fields.isEmpty()) {
+                showWarning("No fields to export!");
+                return;
+            }
+
+            ExportConfig config =
+                    ExportDialog.showExportDialog(root.getScene().getWindow());
+
+            if (config == null) return;
+
+            String bms =
+                    exportService.generateBms(config, rows, cols, fields);
+
+            String copybook =
+                    exportService.generateCopybook(config.mapName(), fields);
+
+            showResultDialog(config.mapName(), bms, copybook);
+
+        });        
 
         ToggleButton snapToggle = new ToggleButton("Snap To Grid");
         snapToggle.setSelected(true);
+        
         snapToggle.selectedProperty().addListener((obs, oldV, newV) -> snapEnabled = newV);
 
         HBox controls = new HBox(10, exportButton, snapToggle);
         controls.setPadding(new Insets(10));
+
         root.setBottom(controls);
     }
-
-    // private void drawHorizontalRuler(GraphicsContext gc) {
-    //     gc.setFill(Color.web("#333"));
-    //     gc.fillRect(0, 0, cols * CELL_WIDTH, 20);  // Background for ruler
-    //     gc.setFill(Color.LIGHTGRAY);
-    //     gc.setFont(javafx.scene.text.Font.font("Monospaced", 10));
-
-    //     for (int c = 1; c <= cols; c++) {
-    //         if (c % 5 == 0 || c == 1) { // Show every 5th column
-    //             String text = String.valueOf(c);
-    //             gc.fillText(text, (c - 1) * CELL_WIDTH + 2, 15);  // Column numbers
-    //         }
-    //     }
-    // }
-
-    // private void drawVerticalRuler(GraphicsContext gc) {
-    //     gc.setFill(Color.web("#333"));
-    //     gc.fillRect(0, 0, 40, rows * CELL_HEIGHT);  // Background for ruler
-    //     gc.setFill(Color.LIGHTGRAY);
-    //     gc.setFont(javafx.scene.text.Font.font("Monospaced", 10));
-
-    //     for (int r = 1; r <= rows; r++) {
-    //         if (r % 2 == 0 || r == 1) { // Show every 2nd row
-    //             String text = String.format("%02d", r);
-    //             gc.fillText(text, 2, r * CELL_HEIGHT - 5);  // Row numbers
-    //         }
-    //     }
-    // }
 
     private void setupMenu() {
 
         MenuBar menuBar = new MenuBar();
 
         Menu settingsMenu = new Menu("Settings");
-
         MenuItem modifyGrid = new MenuItem("Modify Rows/Columns");
         modifyGrid.setOnAction(e -> showGridSizeDialog());
-
         settingsMenu.getItems().add(modifyGrid);
 
         Menu aboutMenu = new Menu("About");
         MenuItem aboutItem = new MenuItem("About BMS Map Editor");
-        aboutItem.setOnAction(e -> showAboutDialog());
-
+        aboutItem.setOnAction(e -> AboutDialog.show());
         aboutMenu.getItems().add(aboutItem);
 
-        // Add menus to menu bar
         menuBar.getMenus().addAll(settingsMenu, aboutMenu);
-
         root.setTop(menuBar);
     }
 
@@ -687,15 +450,15 @@ public class MainView {
                     if (rows > 0 && cols > 0) {
                         this.rows = rows;
                         this.cols = cols;
-                        resetCanvas();  // Resize and reset the canvas
+                        resetCanvas();
                     } else {
-                        new Alert(Alert.AlertType.ERROR, "Invalid grid size").showAndWait();
+                        showError("Invalid grid size");
                     }
                 } catch (NumberFormatException e) {
-                    new Alert(Alert.AlertType.ERROR, "Invalid grid format").showAndWait();
+                    showError("Invalid grid format");
                 }
             } else {
-                new Alert(Alert.AlertType.ERROR, "Invalid format. Use 'rows x cols' (e.g., 24x80)").showAndWait();
+                showError("Invalid format. Use 'rows x cols' (e.g., 24x80)");
             }
         });
     }
@@ -703,119 +466,8 @@ public class MainView {
     private void resetCanvas() {
         canvas.setWidth(cols * CELL_WIDTH);
         canvas.setHeight(rows * CELL_HEIGHT);
-        drawGrid();  
-        redrawFields();
-    }
-
-    private void showAboutDialog() {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("About BMS Map Editor");
-        alert.setHeaderText("BMS Map Editor v1.0");
-        alert.setContentText("This is a tool to design BMS maps, " +
-                             "used for creating terminal interface layouts in COBOL.");
-
-        alert.showAndWait();
-    }
-
-    private void exportBms() {
-
-        if (fields.isEmpty()) {
-            showWarning("No fields to export!");
-            return;
-        }
-
-        Optional<ExportConfig> configOpt = showExportConfigDialog();
-        if (configOpt.isEmpty()) return;
-
-        ExportConfig config = configOpt.get();
-
-        if (!isValidMapName(config.mapName())) {
-            showError("Invalid map name!");
-            return;
-        }
-
-        String bmsText = BmsGenerator.generate(
-                config.mapName(),
-                rows,
-                cols,
-                fields,
-                config.tioapfx(),
-                config.ctrl(),
-                config.line(),
-                config.column(),
-                config.includePreview()
-        );
-
-        String copyBookText = BmsGenerator.generateCopybook(
-                config.mapName(),
-                fields,
-                true
-        );
-
-        showResultDialog(config.mapName(), bmsText, copyBookText);
-    }
-
-    private Color toFxColor(BmsField.BmsColor c) {
-        switch (c) {
-            case RED: return Color.RED;
-            case GREEN: return Color.LIME;
-            case BLUE: return Color.BLUE;
-            case YELLOW: return Color.YELLOW;
-            case TURQUOISE: return Color.CYAN;
-            case PINK: return Color.HOTPINK;
-            case NEUTRAL:
-            default: return Color.WHITE;
-        }
-    }
-
-    private record ExportConfig(
-            String mapName,
-            String tioapfx,
-            String ctrl,
-            String line,
-            String column,
-            boolean includePreview
-    ) {}
-
-    private Optional<ExportConfig> showExportConfigDialog() {
-
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("BMS Export Configuration");
-        dialog.setHeaderText("Enter Map Export Details");
-
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-
-        TextField mapNameField = new TextField("MYMAP");
-        TextField tioapfxField = new TextField("YES");
-        TextField ctrlField = new TextField("FREEKB,FRSET");
-        TextField lineField = new TextField("1");
-        TextField columnField = new TextField("1");
-
-        CheckBox previewCheckBox = new CheckBox("Include Preview Section");
-        previewCheckBox.setSelected(true);
-
-        grid.addRow(0, new Label("Map Name:"), mapNameField);
-        grid.addRow(1, new Label("TIOAPFX:"), tioapfxField);
-        grid.addRow(2, new Label("CTRL:"), ctrlField);
-        grid.addRow(3, new Label("LINE:"), lineField);
-        grid.addRow(4, new Label("COLUMN:"), columnField);
-        grid.addRow(5, previewCheckBox);
-
-        dialog.getDialogPane().setContent(grid);
-        dialog.getDialogPane().getButtonTypes()
-                .addAll(ButtonType.OK, ButtonType.CANCEL);
-
-        return dialog.showAndWait().filter(b -> b == ButtonType.OK)
-                .map(b -> new ExportConfig(
-                        mapNameField.getText().trim(),
-                        tioapfxField.getText().trim().toUpperCase(),
-                        ctrlField.getText().trim(),
-                        lineField.getText().trim(),
-                        columnField.getText().trim(),
-                        previewCheckBox.isSelected()
-                ));
+        renderer.drawGrid(canvas, rows, cols);
+        renderer.drawFields(canvas, fields, rows, cols, selectedField);
     }
 
     private void showResultDialog(String mapName,
@@ -872,28 +524,22 @@ public class MainView {
         Clipboard.getSystemClipboard().setContent(content);
     }
 
+    // Export Helpers
     private void exportToFile(String content,
                               String extensionPattern,
                               String defaultFileName) {
 
         FileChooser chooser = new FileChooser();
         chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter(
-                        extensionPattern + " Files",
-                        extensionPattern
-                )
+                new FileChooser.ExtensionFilter(extensionPattern + " Files", extensionPattern)
         );
         chooser.setInitialFileName(defaultFileName);
 
-        File file = chooser.showSaveDialog(null);
-
+        File file = chooser.showSaveDialog(root.getScene().getWindow());
         if (file == null) return;
 
-        try (BufferedWriter writer =
-                     new BufferedWriter(new FileWriter(file))) {
-
-            writer.write(content);
-
+        try {
+            exportService.exportToFile(content, file);
         } catch (IOException ex) {
             showError("Error saving file: " + ex.getMessage());
         }
@@ -909,5 +555,36 @@ public class MainView {
 
     public BorderPane getRoot() {
         return root;
+    }
+
+    // Field Dialog Helper
+    private void editOrAddFieldDialog(BmsField field, int row, int col) {
+        FieldDialog dialog = new FieldDialog(new FieldService(), fields);
+        dialog.showDialog(field, row, col)
+              .ifPresent(f -> renderer.drawFields(canvas, fields, rows, cols, selectedField));
+    }
+
+    // Clone Field Helper
+    private BmsField cloneField(BmsField original) {
+        BmsField copy = new BmsField();
+        copy.setName(original.getName() + "_COPY");
+        copy.setCol(original.getCol());
+        copy.setRow(Math.min(rows, original.getRow() + 1));
+        copy.setLength(original.getLength());
+        copy.setFieldType(original.getFieldType());
+        copy.setColor(original.getColor());
+        copy.setBgColor(original.getBgColor());
+        copy.setProtection(original.getProtection());
+        copy.setIntensity(original.getIntensity());
+        copy.setInitialValue(original.getInitialValue());
+        return copy;
+    }
+
+    private void saveState() {
+        List<BmsField> snapshot = new ArrayList<>();
+        for (BmsField f : fields) {
+            snapshot.add(cloneField(f));
+        }
+        undoStack.push(snapshot);
     }
 }
