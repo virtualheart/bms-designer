@@ -1,4 +1,4 @@
-package ui;
+package com.openbms.ui;
 
 import javafx.scene.control.*;
 import javafx.stage.Window;

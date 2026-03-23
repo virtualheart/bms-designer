@@ -1,7 +1,7 @@
-package ui.dialogs;
+package com.openbms.ui.dialogs;
 
-import model.BmsField;
-import service.FieldService;
+import com.openbms.model.BmsField;
+import com.openbms.service.FieldService;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.geometry.Insets;

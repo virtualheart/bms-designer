@@ -1,4 +1,4 @@
-package ui;
+package com.openbms.ui;
 
 import javafx.scene.input.KeyEvent;
 import javafx.scene.canvas.Canvas;
@@ -7,8 +7,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
 
-import model.BmsField;
-import ui.components.CanvasRenderer;
+import com.openbms.model.BmsField;
+import com.openbms.ui.components.CanvasRenderer;
 
 public class KeyboardController {
 

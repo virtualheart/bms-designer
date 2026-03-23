@@ -1,4 +1,4 @@
-package ui;
+package com.openbms.ui;
 
 import javafx.scene.layout.*;
 import javafx.scene.canvas.*;
@@ -7,17 +7,17 @@ import javafx.scene.input.*;
 import javafx.geometry.*;
 import javafx.event.ActionEvent;
 import javafx.scene.paint.Color;
-import model.*;
-import service.*;
 import java.util.*;
 import javafx.stage.FileChooser;
 import java.io.File;
 import java.io.IOException;
-import ui.components.*;
-import ui.dialogs.AboutDialog;
-import ui.dialogs.FieldDialog;
-import ui.dialogs.ExportDialog;
-import ui.CanvasController;
+import com.openbms.model.*;
+import com.openbms.service.*;
+import com.openbms.ui.components.*;
+import com.openbms.ui.dialogs.AboutDialog;
+import com.openbms.ui.dialogs.FieldDialog;
+import com.openbms.ui.dialogs.ExportDialog;
+import com.openbms.ui.CanvasController;
 
 public class MainView {
 

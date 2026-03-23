@@ -1,4 +1,4 @@
-package model;
+package com.openbms.model;
 
 public record ExportConfig(
         String mapName,

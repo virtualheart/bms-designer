@@ -1,4 +1,4 @@
-package model;
+package com.openbms.model;
 
 // import javafx.scene.paint.Color;
 

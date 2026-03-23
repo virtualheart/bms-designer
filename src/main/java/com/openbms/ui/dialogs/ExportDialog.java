@@ -1,10 +1,10 @@
-package ui.dialogs;
+package com.openbms.ui.dialogs;
 
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.geometry.*;
 import javafx.stage.*;
-import model.ExportConfig;
+import com.openbms.model.ExportConfig;
 
 public class ExportDialog {
 

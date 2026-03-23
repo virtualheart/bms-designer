@@ -1,6 +1,6 @@
-package service;
+package com.openbms.service;
 
-import model.BmsField;
+import com.openbms.model.BmsField;
 import java.util.List;
 
 public class ValidationService {

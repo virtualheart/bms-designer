@@ -1,4 +1,4 @@
-package ui.dialogs;
+package com.openbms.ui.dialogs;
 
 import javafx.scene.control.Alert;
 

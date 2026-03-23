@@ -1,4 +1,4 @@
-package ui;
+package com.openbms.ui;
 
 import javafx.scene.canvas.Canvas;
 import javafx.scene.input.KeyEvent;
@@ -8,12 +8,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
 
-import model.BmsField;
-import ui.components.CanvasRenderer;
+import com.openbms.model.BmsField;
+import com.openbms.ui.components.CanvasRenderer;
 
-import service.ExportService;
-import model.ExportConfig;
-import ui.dialogs.ExportDialog;
+import com.openbms.service.ExportService;
+import com.openbms.model.ExportConfig;
+import com.openbms.ui.dialogs.ExportDialog;
 
 import javafx.scene.control.*;
 import javafx.scene.layout.*;

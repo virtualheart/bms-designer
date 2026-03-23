@@ -1,7 +1,7 @@
-package service;
+package com.openbms.service;
 
-import model.BmsField;
-import model.ExportConfig;
+import com.openbms.model.BmsField;
+import com.openbms.model.ExportConfig;
 
 import java.io.BufferedWriter;
 import java.io.File;

@@ -1,11 +1,11 @@
-package ui.components;
+package com.openbms.ui.components;
 
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
-import model.BmsField;
+import com.openbms.model.BmsField;
 
 import java.util.List;
 
