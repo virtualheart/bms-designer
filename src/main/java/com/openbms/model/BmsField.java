@@ -1,7 +1,5 @@
 package com.openbms.model;
 
-// import javafx.scene.paint.Color;
-
 public class BmsField {
 
     public enum FieldType {
@@ -35,17 +33,12 @@ public class BmsField {
     private int row;
     private int col;
     private int length;
-    // private Color color;
     private BmsColor color;
     private BmsColor bgColor;
     private Protection protection;
     private Intensity intensity;
     private String initialValue = "";
     private Highlight highlight = Highlight.NONE;
-
-
-    private String attrb;  // e.g., "UNPROT,NORM" or "PROT,NORM"
-    public String getAttrb() { return attrb; }
 
     public BmsField() {
         this.name = "FIELD";
@@ -200,18 +193,12 @@ public class BmsField {
             return null;
         return highlight.name();
     }
-    public String getBmsColor() {
-        return color != null ? color.name() : "NEUTRAL";
-    }
 
-    public boolean isLikelyLabel() {
-
-        if (fieldType != FieldType.OUTPUT)
-            return false;
-
-        if (initialValue == null || initialValue.isBlank())
-            return false;
-
-        return true;
+    /**
+     * Whether this field is unprotected and therefore an entry point in the
+     * 3270 emulator (the cursor can land on it and the operator can type).
+     */
+    public boolean isEntryField() {
+        return protection == Protection.UNPROT || protection == Protection.NUM;
     }
 }

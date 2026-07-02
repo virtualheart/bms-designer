@@ -3,9 +3,24 @@ package com.openbms.service;
 import com.openbms.model.BmsField;
 import java.util.List;
 
+/**
+ * Field geometry and identity helpers: overlap detection, cloning with a
+ * unique name, and name validation delegated to ValidationService (so the
+ * validation rules live in exactly one place).
+ */
 public class FieldService {
 
-    // Check if a field overlaps any field in the list 
+    private final ValidationService validationService;
+
+    public FieldService() {
+        this(new ValidationService());
+    }
+
+    public FieldService(ValidationService validationService) {
+        this.validationService = validationService;
+    }
+
+    /** Whether field overlaps any other field in the list (same row, overlapping columns). */
     public boolean overlaps(BmsField field, List<BmsField> fields) {
         for (BmsField f : fields) {
             if (f == field) continue;
@@ -24,13 +39,14 @@ public class FieldService {
         return false;
     }
 
+    /** Creates a copy of f with a guaranteed-unique name (suffix _1, _2, ...). */
     public BmsField cloneField(BmsField f, List<BmsField> allFields) {
         BmsField copy = new BmsField();
         String baseName = f.getName();
         int suffix = 1;
         String newName = baseName + "_" + suffix;
 
-        while (fieldNameExists(newName, null, allFields)) {
+        while (validationService.fieldNameExists(newName, null, allFields)) {
             suffix++;
             newName = baseName + "_" + suffix;
         }
@@ -48,22 +64,40 @@ public class FieldService {
         return copy;
     }
 
-    // Check if a field name already exists in the list 
-    public boolean fieldNameExists(String fieldName,
-                                   BmsField currentField,
-                                   List<BmsField> fields) {
-        for (BmsField f : fields) {
-            if (!f.equals(currentField) &&
-                f.getName().equalsIgnoreCase(fieldName)) {
-                return true;
-            }
-        }
-        return false;
+    /**
+     * Creates an exact copy of f, preserving its name. Used for undo/redo
+     * snapshots where identity must be preserved rather than de-duplicated.
+     */
+    public BmsField copyExact(BmsField f) {
+        BmsField copy = new BmsField();
+        copy.setName(f.getName());
+        copy.setFieldType(f.getFieldType());
+        copy.setLength(f.getLength());
+        copy.setColor(f.getColor());
+        copy.setBgColor(f.getBgColor());
+        copy.setProtection(f.getProtection());
+        copy.setIntensity(f.getIntensity());
+        copy.setInitialValue(f.getInitialValue());
+        copy.setRow(f.getRow());
+        copy.setCol(f.getCol());
+        return copy;
     }
 
-    // Validate a field name 
+    public boolean fieldNameExists(String fieldName, BmsField currentField, List<BmsField> fields) {
+        return validationService.fieldNameExists(fieldName, currentField, fields);
+    }
+
     public boolean isValidFieldName(String name) {
-        return name != null && name.matches("[A-Za-z@#$][A-Za-z0-9@#$-_]{0,29}");
+        return validationService.isValidFieldName(name);
     }
 
+    /** Generates the next available auto-name like FIELD1, FIELD2, ... */
+    public String generateAutoName(List<BmsField> fields) {
+        int index = 1;
+        String base = "FIELD";
+        while (fieldNameExists(base + index, null, fields)) {
+            index++;
+        }
+        return base + index;
+    }
 }

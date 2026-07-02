@@ -5,10 +5,13 @@ import javafx.scene.layout.*;
 import javafx.geometry.*;
 import javafx.stage.*;
 import com.openbms.model.ExportConfig;
+import com.openbms.service.ValidationService;
 
 public class ExportDialog {
 
     public static ExportConfig showExportDialog(Window owner) {
+
+        ValidationService validationService = new ValidationService();
 
         Dialog<ExportConfig> dialog = new Dialog<>();
         dialog.initOwner(owner);
@@ -58,10 +61,28 @@ public class ExportDialog {
         dialog.getDialogPane().setContent(grid);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
+        Button okButton = (Button) dialog.getDialogPane().lookupButton(ButtonType.OK);
+        okButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            String mapName = mapNameField.getText().trim();
+            if (!validationService.isValidMapName(mapName)) {
+                showError("Invalid map name. Use 1-7 letters/digits, starting with a letter (e.g. MYMAP).");
+                event.consume();
+                return;
+            }
+
+            try {
+                Integer.parseInt(lineField.getText().trim());
+                Integer.parseInt(columnField.getText().trim());
+            } catch (NumberFormatException ex) {
+                showError("LINE and COLUMN must be numeric.");
+                event.consume();
+            }
+        });
+
         dialog.setResultConverter(button -> {
             if (button == ButtonType.OK) {
                 return new ExportConfig(
-                        mapNameField.getText().trim(),
+                        mapNameField.getText().trim().toUpperCase(),
                         tioapfxBox.getValue(),
                         ctrlBox.getEditor().getText().trim(),
                         lineField.getText().trim(),
@@ -73,6 +94,10 @@ public class ExportDialog {
         });
 
         return dialog.showAndWait().orElse(null);
+    }
+
+    private static void showError(String message) {
+        new Alert(Alert.AlertType.ERROR, message).showAndWait();
     }
 
     // Utility to force uppercase input
